@@ -1,8 +1,4 @@
-# PTSD Symptom Heterogeneity Simulation
-
-## Projektbeschreibung
-
-Dieses Projekt simuliert die Heterogenität von Symptom-Kombinationen bei PTSD unter Berücksichtigung von Inflammation als zweite latente Variable.
+# PTSD Symptom Heterogeneity Simulation with/without Inflammation
 
 ## Dateien
 
@@ -15,7 +11,7 @@ Dieses Projekt simuliert die Heterogenität von Symptom-Kombinationen bei PTSD u
 #### 1. Zweite latente Variable: Inflammation (I)
 - **Prävalenz**: 50%
 - **Korrelation mit PTSD (L)**: 0.6
-- Beide latente Variablen sind binär (vorhanden/nicht vorhanden)
+- Beide latente Variablen sind binär
 
 #### 2. Funktion: `generate_correlated_binary()`
 - Erzeugt zwei korrelierte binäre latente Variablen
@@ -53,19 +49,3 @@ Die Effekte von PTSD (L) und Inflammation (I) auf die Symptome sind:
 - L und I korrelieren mit 0.6 (bidirektionale Beziehung)
 - Beide sind nicht direkt beobachtbar
 - Werden aus Symptom-Mustern erschlossen
-
-## Verwendung
-
-1. Öffne `Inflammation_Sim.Rmd` in RStudio
-2. Installiere benötigte Pakete (falls noch nicht vorhanden):
-```r
-   install.packages(c("tidyverse", "mvtnorm", "MASS"))
-```
-3. Führe alle Code-Chunks aus (Ctrl/Cmd + Alt + R)
-
-## Ausgabe
-
-Das Skript berechnet:
-- Wahrscheinlichkeiten aller 32 möglichen Symptom-Kombinationen
-- Mittelwerte und Standardabweichungen über 100 Simulationen
-- Visualisierung der Wahrscheinlichkeitsverteilung
