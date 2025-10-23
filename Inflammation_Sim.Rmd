@@ -20,7 +20,7 @@ simulated with a binary (present or absent) latent construct "L". The
 symptoms are simulated as indicators "S1", "S2", "W1", "W2", and "M".
 "S" equates to a strong indicator, "W" to a weak indicator, and "M" to a
 medium-strength indicator. The mental disorder is assumed to be present
-in half of the simulated individuals. Symptoms are measured on a scale
+in NEW: 80% of the simulated individuals. Symptoms are measured on a scale
 ranging from 0-4, with values of 2 or higher indicating symptom
 presence. Symptom ratings are assumed to be normally distributed around
 a mean of 2, but with different standard deviations across the simulated
@@ -28,14 +28,14 @@ population. Depending on their "strength", additional variance is added
 (with more variance added for weaker indicator strength). The presence
 of the disorder is inferred if at least 2 of the 5 criteria (symptoms)
 are met. Finally, the probabilities of each combination are inferred,
-shown, and plotted. **Ich habe die Simulation mit einer zweiten latenten
+shown, and plotted. NEW: Ich habe die Simulation mit einer zweiten latenten
 Variable I, welche Inflammation simuliert, erweitert. Die Variable ist
 binär und bei der Hälfte der Individuen vorhanden. Zwischen I und und
 der latenten Variable L, welche die Krankheit simuliert, besteht eine
 Korrelation von 0.6. Zwischen I und den Indikatoren S1, S2, M, W1 und W2
 bestehen unterschiedlich starke Zusammenhänge. Das Modell ist so
 gewählt, dass beide latenten Variablen additiv, das heisst unabhängig,
-auf die Indikatoren wirken.**
+auf die Indikatoren wirken.
 
 ```{r setup, include=FALSE}
 ```
@@ -109,7 +109,7 @@ results_accumulator <- matrix(0, ncol = 2^5, nrow = n_sims)
 ## Running Simulations
 
 First, we simulate the presence of the "mental disorder". Each
-individual has a 50% probability of having the disorder. Next, we
+individual has a NEW: 80% probability of having the disorder. Next, we
 generate individual symptom ratings for every simulated individual.
 These ratings are based on the previously stated assumptions, namely,
 they are distributed around a mean of 2 with varying standard deviations
