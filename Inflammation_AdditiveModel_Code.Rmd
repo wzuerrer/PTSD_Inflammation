@@ -279,7 +279,7 @@ Theme_Figure_1a <-
     plot.title = element_text(size=12),
     axis.title.y = element_text(size=9, 
                                 margin = margin(t = 0, r = 0, b = 0, l = 0)),
-    axis.text.x = element_blank(),
+    axis.text.x = element_text(size = 7, angle = 90, hjust = 1, vjust = 0.5),
     axis.text.y = element_text(size=9, 
                                color = "black", 
                                margin = margin(t = 0, r = 0, b = 0, l = 5)),
@@ -295,7 +295,7 @@ Theme_Figure_1a <-
     legend.position = "bottom")
 
 # Plot with two colors
-ggplot(filtered_probs_combined, aes(x = reorder(Rank, -Mean_Probability), 
+ggplot(filtered_probs_combined, aes(x = reorder(Combination, -Mean_Probability), 
                                      y = Mean_Probability,
                                      fill = Group)) +
   geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
@@ -306,8 +306,8 @@ ggplot(filtered_probs_combined, aes(x = reorder(Rank, -Mean_Probability),
   scale_fill_manual(values = c("With Inflammation" = "#F97134", 
                                 "Without Inflammation" = "#3498db")) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-  labs(title = "Symptom Combination Probabilities by Inflammation Status", 
-       x = "Symptom Combinations (ranked by average probability)", 
+  labs(title = "Symptom Combination Probabilities by Inflammation Status (Additive Model)", 
+       x = "Symptom Combinations (S1, S2, W1, W2, M)", 
        y = "Probability",
        fill = "") + 
   Theme_Figure_1a

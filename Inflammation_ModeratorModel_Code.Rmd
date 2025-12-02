@@ -1,0 +1,397 @@
+---
+title: 'Influence of inflammation on symptom heterogeneity in PTSD: Moderator Model'
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+## Introduction
+
+The aim of the simulation is to calculate and compare the probability
+distributions of symptom combinations between individuals with and
+without inflammation in a fictitious mental disorder. The disorder is
+defined by 5 symptom criteria of which at least 2 must be present to
+fulfill diagnostic criteria. The disorder is simulated with a binary
+latent variable L, which is present in 80% of the simulated individuals.
+
+Five symptom indicators are simulated: S1, S2, M, W1, and W2, where S
+stands for strong indicators, W for weak indicators, and M for a
+medium-strength indicator. Each symptom is influenced by the disorder L,
+while a second binary latent variable I, representing inflammation,
+moderates the strength of L's effect on symptoms. Inflammation is
+present in 50% of individuals. The correlation between L and I is 0.6.
+
+Symptoms are measured on a scale from 0 to 4, with values of 2 or higher
+indicating symptom presence. Symptom ratings are normally distributed
+around a mean of 2, with different standard deviations depending on
+indicator strength. The disorder is considered present if at least 2 of
+the 5 symptoms are present. Notably, in this moderator model,
+inflammation has no effect on symptoms when the disorder is absent
+(L=0); inflammation only influences symptom expression through its
+moderation of the disorder's effect. The simulation calculates the
+probability of each symptom combination separately for individuals with
+and without inflammation.
+
+### Formal Model Specification
+
+For each symptom i ∈ {S1, S2, M, W1, W2}:
+
+$$\text{Symptom}_i = (\lambda_{0,i} + \gamma_i \times I) \times L + \varepsilon_i$$
+
+Where:
+
+-   $\lambda_{0,i}$ = baseline effect of L on symptom i (when I = 0)
+-   $\gamma_i$ = moderation effect (change in L's effect when I = 1)
+-   $\varepsilon_i \sim N(\mu, \sigma^2_i)$ = residual error with mean μ
+    = 2
+
+### Parameter Values
+
+Effect sizes are based on Cohen's d values, converted to raw units:
+
+| Symptom | Type   | SD  | Cohen's d | λ₀ (d × SD) | Amplification | γ (λ₀ × (amp-1)) |
+|---------|--------|-----|-----------|-------------|---------------|------------------|
+| S1      | Strong | 0.7 | 1.3       | 0.91        | 1.25          | 0.2275           |
+| S2      | Strong | 0.7 | 1.3       | 0.91        | 1.25          | 0.2275           |
+| M       | Medium | 1.0 | 0.9       | 0.90        | 1.20          | 0.1800           |
+| W1      | Weak   | 1.2 | 0.5       | 0.60        | 1.15          | 0.0900           |
+| W2      | Weak   | 1.2 | 0.5       | 0.60        | 1.15          | 0.0900           |
+
+```{r setup, include=FALSE}
+```
+
+## Set-up
+
+First, the necessary packages are loaded.
+
+```{r library, echo=TRUE, message=FALSE, warning=FALSE}
+# Load required packages
+library(tidyverse)
+library(mvtnorm)
+library(MASS)
+library(flextable)
+library(officer)
+```
+
+Second, a seed is set and the general set up is defined.
+
+```{r general_setup, echo=TRUE}
+# Setting seed for reproducibility
+set.seed(123)
+
+# Combinations of binary criteria
+combinations <- expand.grid(c(0,1), c(0,1), c(0,1), c(0,1), c(0,1))
+```
+
+Third, a helper function is created to assure that simulated values fall
+between 0 and 4 (otherwise they are resampled).
+
+```{r helper_function_rescale, echo=TRUE}
+# Function to ensure the values fall between 0 and 4
+rescale <- function(x) {
+  min_val <- min(x)
+  max_val <- max(x)
+  return((x - min_val) / (max_val - min_val) * 4)
+}
+```
+
+Fourth, a function is created to generate correlated binary variables.
+
+```{r helper_function_binary, echo=TRUE}
+generate_correlated_binary <- function(n, p1, p2, cor) {
+  means <- c(0, 0)
+  sigma <- matrix(c(1, cor, cor, 1), 2, 2)
+  bvn <- mvrnorm(n, mu = means, Sigma = sigma)
+  
+  threshold_L <- qnorm(1 - p1)
+  threshold_I <- qnorm(1 - p2)
+  
+  L <- ifelse(bvn[,1] > threshold_L, 1, 0)
+  I <- ifelse(bvn[,2] > threshold_I, 1, 0)
+  
+  return(data.frame(L = L, I = I))
+}
+```
+
+Fifth, the set up of the simulation is defined.
+
+```{r simulation_setup, echo=TRUE}
+# Number of individuals and simulations
+n <- 1000
+n_sims <- 100
+
+# Matrices to accumulate the results of each simulation
+results_WITH_inflammation <- matrix(0, ncol = 2^5, nrow = n_sims)
+results_WITHOUT_inflammation <- matrix(0, ncol = 2^5, nrow = n_sims)
+
+# Vectors to track sample sizes
+n_WITH_inflammation <- numeric(n_sims)
+n_WITHOUT_inflammation <- numeric(n_sims)
+```
+
+## Running Simulations
+
+First, the presence of the mental disorder and inflammation status is
+simulated. Each individual has an 80% probability of having the disorder
+and a 50% probability of having inflammation, with a correlation of 0.6
+between the two. Next, individual symptom ratings are generated for
+every simulated individual using the moderator model. In this model,
+inflammation (I) does not have a direct effect on symptoms, but instead
+moderates (amplifies) the effect of the disorder (L) on symptoms. When
+L=0, inflammation has no effect on symptoms. After obtaining the symptom
+ratings, new variables are introduced that indicate whether a symptom is
+"present" or "absent". A symptom is deemed "present" if its rating is 2
+or higher. The presence of the disorder is then evaluated based on the
+number of "present" symptoms. If at least 2 out of the 5 symptoms are
+deemed present, the disorder is considered to be "present" in that
+individual. The diagnosed individuals are then split into two groups:
+those with inflammation (I=1) and those without inflammation (I=0).
+Finally, the probability of each symptom combination is calculated
+separately for each inflammation group across 100 simulations.
+
+```{r simulations, echo=TRUE}
+for(sim in 1:n_sims) {
+  # Generate correlated binary latent variables L (PTSD) and I (Inflammation)
+  latent_vars <- generate_correlated_binary(n, p1 = 0.8, p2 = 0.5, cor = 0.6)
+  L <- latent_vars$L
+  I <- latent_vars$I
+  
+  # Define model parameters
+  # Baseline effects (λ₀): effect of L when I = 0
+  lambda_S1 <- 0.91  # Strong indicator
+  lambda_S2 <- 0.91  # Strong indicator
+  lambda_M  <- 0.90  # Medium indicator
+  lambda_W1 <- 0.60  # Weak indicator
+  lambda_W2 <- 0.60  # Weak indicator
+  
+  # Moderation effects (γ): additional effect when I = 1
+  gamma_S1 <- 0.2275  # 25% amplification
+  gamma_S2 <- 0.2275  # 25% amplification
+  gamma_M  <- 0.1800  # 20% amplification
+  gamma_W1 <- 0.0900  # 15% amplification
+  gamma_W2 <- 0.0900  # 15% amplification
+  
+  # Standard deviations
+  sd_strong <- 0.7
+  sd_medium <- 1.0
+  sd_weak   <- 1.2
+  
+  # MODERATOR MODEL: Symptom_i = (λ₀ + γ × I) × L + ε
+  # Inflammation only affects symptoms through moderation of L's effect
+  # When L = 0, inflammation has NO effect on symptoms
+  
+  # Strong indicators
+  S1 <- rescale((lambda_S1 + gamma_S1 * I) * L + rnorm(n, mean = 2, sd = sd_strong))
+  S2 <- rescale((lambda_S2 + gamma_S2 * I) * L + rnorm(n, mean = 2, sd = sd_strong))
+  
+  # Medium indicator
+  M  <- rescale((lambda_M + gamma_M * I) * L + rnorm(n, mean = 2, sd = sd_medium))
+  
+  # Weak indicators
+  W1 <- rescale((lambda_W1 + gamma_W1 * I) * L + rnorm(n, mean = 2, sd = sd_weak))
+  W2 <- rescale((lambda_W2 + gamma_W2 * I) * L + rnorm(n, mean = 2, sd = sd_weak))
+  
+  # Combine into a data frame
+  data <- data.frame(L, I, S1, S2, W1, W2, M)
+  
+  # Creating binary variables for all indicators
+  data <- data %>%
+    mutate(
+      S1_positive = S1 >= 2,
+      S2_positive = S2 >= 2,
+      W1_positive = W1 >= 2,
+      W2_positive = W2 >= 2,
+      M_positive = M >= 2
+    )
+  
+  # Calculate a new column that counts how many criteria are met for each individual
+  data <- data %>%
+    mutate(criteria_met = S1_positive + S2_positive + 
+                          W1_positive + W2_positive + 
+                          M_positive)
+  
+  # Filter the dataset to keep only those individuals that meet at least 2 criteria
+  filtered_data <- data %>%
+    filter(criteria_met >= 2)
+  
+  # Split into inflammation groups
+  filtered_WITH_I <- filtered_data %>% filter(I == 1)
+  filtered_WITHOUT_I <- filtered_data %>% filter(I == 0)
+  
+  # Track sample sizes
+  n_WITH_inflammation[sim] <- nrow(filtered_WITH_I)
+  n_WITHOUT_inflammation[sim] <- nrow(filtered_WITHOUT_I)
+  
+  # === Calculate for WITH inflammation group ===
+  if(nrow(filtered_WITH_I) > 5) {  # Need sufficient data for covariance
+    cov_matrix_WITH <- cov(filtered_WITH_I[, c("S1", "S2", "W1", "W2", "M")])
+    means_WITH <- colMeans(filtered_WITH_I[, c("S1", "S2", "W1", "W2", "M")])
+    
+    for(i in 1:nrow(combinations)){
+      lower <- as.numeric(ifelse(combinations[i,] == 1, 2, -Inf))
+      upper <- as.numeric(ifelse(combinations[i,] == 1, Inf, 2))
+      results_WITH_inflammation[sim, i] <- pmvnorm(lower = lower, 
+                                                   upper = upper, 
+                                                   mean = means_WITH, 
+                                                   sigma = cov_matrix_WITH)
+    }
+  }
+  
+  # === Calculate for WITHOUT inflammation group ===
+  if(nrow(filtered_WITHOUT_I) > 5) {  # Need sufficient data for covariance
+    cov_matrix_WITHOUT <- cov(filtered_WITHOUT_I[, c("S1", "S2", "W1", "W2", "M")])
+    means_WITHOUT <- colMeans(filtered_WITHOUT_I[, c("S1", "S2", "W1", "W2", "M")])
+    
+    for(i in 1:nrow(combinations)){
+      lower <- as.numeric(ifelse(combinations[i,] == 1, 2, -Inf))
+      upper <- as.numeric(ifelse(combinations[i,] == 1, Inf, 2))
+      results_WITHOUT_inflammation[sim, i] <- pmvnorm(lower = lower, 
+                                                      upper = upper, 
+                                                      mean = means_WITHOUT, 
+                                                      sigma = cov_matrix_WITHOUT)
+    }
+  }
+}
+```
+
+The simulation results are processed separately for each inflammation
+group. For both the "with inflammation" and "without inflammation"
+groups, the mean probability and standard deviation of each symptom
+combination across the 100 simulations are calculated. The two groups
+are then combined into a single dataset for comparison. Only symptom
+combinations that meet diagnostic criteria (≥2 symptoms present) are
+retained for analysis. Combinations are ranked by their average
+probability across both groups to facilitate visual comparison. Finally,
+the average sample sizes for each inflammation group across all
+simulations are reported.
+
+```{r calculations, echo=TRUE}
+# === Process results for WITH inflammation group ===
+derived_probs_WITH <- data.frame(
+  Combination = paste(combinations[,1], 
+                      combinations[,2], 
+                      combinations[,3], 
+                      combinations[,4], 
+                      combinations[,5], sep=""),
+  Mean_Probability = apply(results_WITH_inflammation, 2, mean),
+  SD_Probability = apply(results_WITH_inflammation, 2, sd),
+  Group = "With Inflammation")
+
+# === Process results for WITHOUT inflammation group ===
+derived_probs_WITHOUT <- data.frame(
+  Combination = paste(combinations[,1], 
+                      combinations[,2], 
+                      combinations[,3], 
+                      combinations[,4], 
+                      combinations[,5], sep=""),
+  Mean_Probability = apply(results_WITHOUT_inflammation, 2, mean),
+  SD_Probability = apply(results_WITHOUT_inflammation, 2, sd),
+  Group = "Without Inflammation")
+
+# Combine both groups
+derived_probs_combined <- rbind(derived_probs_WITH, derived_probs_WITHOUT)
+
+# Determine which combinations meet 2 out of 5 criteria
+derived_probs_combined$MeetsCriteria <- ifelse(rowSums(combinations) >= 2, TRUE, FALSE)
+
+# Filter to only include combinations that meet the criteria
+filtered_probs_combined <- derived_probs_combined %>% 
+  filter(MeetsCriteria) %>%
+  arrange(Group, desc(Mean_Probability))
+
+# Add abbreviations for x-axis
+# We'll rank combinations by their average probability across both groups
+avg_probs <- derived_probs_combined %>%
+  filter(MeetsCriteria) %>%
+  group_by(Combination) %>%
+  summarise(Avg = mean(Mean_Probability)) %>%
+  arrange(desc(Avg))
+
+filtered_probs_combined$Rank <- match(filtered_probs_combined$Combination, avg_probs$Combination)
+
+# Report average sample sizes
+cat("Average sample sizes across simulations:\n")
+cat("With Inflammation:", round(mean(n_WITH_inflammation), 1), "\n")
+cat("Without Inflammation:", round(mean(n_WITHOUT_inflammation), 1), "\n")
+```
+
+## Results
+
+The tables below showcase the mean probabilities and standard deviations
+for all symptom combinations that meet diagnostic criteria, displayed
+separately for individuals with and without inflammation. Combinations
+are sorted by probability within each group, from most to least common.
+
+```{r show_table, echo=TRUE}
+# Add MeetsCriteria column to individual dataframes
+derived_probs_WITH$MeetsCriteria <- ifelse(rowSums(combinations) >= 2, TRUE, FALSE)
+derived_probs_WITHOUT$MeetsCriteria <- ifelse(rowSums(combinations) >= 2, TRUE, FALSE)
+
+# Show ALL results for WITH inflammation
+cat("\n=== WITH INFLAMMATION (all combinations meeting criteria) ===\n")
+print(derived_probs_WITH %>% 
+        filter(MeetsCriteria) %>% 
+        arrange(desc(Mean_Probability)))
+
+# Show ALL results for WITHOUT inflammation
+cat("\n=== WITHOUT INFLAMMATION (all combinations meeting criteria) ===\n")
+print(derived_probs_WITHOUT %>% 
+        filter(MeetsCriteria) %>% 
+        arrange(desc(Mean_Probability)))
+```
+
+## Visualization
+
+The probabilities of symptom combinations are plotted for both
+inflammation groups. Each bar represents a symptom combination that
+meets diagnostic criteria (≥2 symptoms present). Orange bars represent
+individuals with inflammation, while blue bars represent individuals
+without inflammation. Combinations are ordered by their average
+probability across both groups. Error bars indicate the standard
+deviation across the 100 simulations.
+
+```{r plot, echo=TRUE, message=FALSE, warning=FALSE}
+# Define the theme for the figure
+Theme_Figure_1a <- 
+  theme(
+    plot.title = element_text(size=12),
+    axis.title.y = element_text(size=9, 
+                                margin = margin(t = 0, r = 0, b = 0, l = 0)),
+    axis.text.x = element_text(size = 7, angle = 90, hjust = 1, vjust = 0.5),
+    axis.text.y = element_text(size=9, 
+                               color = "black", 
+                               margin = margin(t = 0, r = 0, b = 0, l = 5)),
+    axis.ticks = element_blank(),
+    panel.grid.major.x = element_blank(), 
+    panel.grid.major.y = element_line(size=.2, 
+                                      color="black"), 
+    panel.grid.minor.y = element_blank(), 
+    panel.border = element_rect(colour = "black", 
+                                fill=NA, 
+                                size=1),
+    panel.background = element_rect(fill = "white"),
+    legend.position = "bottom")
+
+# Plot with two colors
+ggplot(filtered_probs_combined, aes(x = reorder(Combination, -Mean_Probability), 
+                                     y = Mean_Probability,
+                                     fill = Group)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = Mean_Probability - SD_Probability, 
+                    ymax = Mean_Probability + SD_Probability), 
+                position = position_dodge(width = 0.9),
+                width = 0.25) +
+  scale_fill_manual(values = c("With Inflammation" = "#F97134", 
+                                "Without Inflammation" = "#3498db")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  labs(title = "Symptom Combination Probabilities by Inflammation Status (Moderator Model)", 
+       x = "Symptom Combinations (S1, S2, W1, W2, M)", 
+       y = "Probability",
+       fill = "") + 
+  Theme_Figure_1a
+```
