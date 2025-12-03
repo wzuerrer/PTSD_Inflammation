@@ -76,6 +76,7 @@ library(mvtnorm)
 library(MASS)
 library(flextable)
 library(officer)
+library(MatchIt)
 ```
 
 Second, a seed is set and the general set up is defined.
@@ -132,6 +133,13 @@ results_WITHOUT_inflammation <- matrix(0, ncol = 2^5, nrow = n_sims)
 # Vectors to track sample sizes
 n_WITH_inflammation <- numeric(n_sims)
 n_WITHOUT_inflammation <- numeric(n_sims)
+
+# NEW: Vectors to track severity before and after matching
+severity_WITH_before <- numeric(n_sims)
+severity_WITHOUT_before <- numeric(n_sims)
+severity_WITH_after <- numeric(n_sims)
+severity_WITHOUT_after <- numeric(n_sims)
+n_matched <- numeric(n_sims)  # Sample size per group after matching
 ```
 
 ## Running Simulations
@@ -227,6 +235,39 @@ for(sim in 1:n_sims) {
   n_WITH_inflammation[sim] <- nrow(filtered_WITH_I)
   n_WITHOUT_inflammation[sim] <- nrow(filtered_WITHOUT_I)
   
+  # NEW: Calculate total severity for each diagnosed individual
+filtered_data <- filtered_data %>%
+  mutate(total_severity = S1 + S2 + M + W1 + W2)
+
+# NEW: Track severity BEFORE matching
+severity_WITH_before[sim] <- mean(filtered_data$total_severity[filtered_data$I == 1])
+severity_WITHOUT_before[sim] <- mean(filtered_data$total_severity[filtered_data$I == 0])
+
+# NEW: Perform nearest-neighbor matching on total severity
+# Reverse the treatment coding so we match FROM non-inflammation TO inflammation
+filtered_data <- filtered_data %>%
+  mutate(I_reversed = 1 - I)  # Now 1 = no inflammation, 0 = inflammation
+
+# Calculate the standard deviation of severity for caliper
+severity_sd <- sd(filtered_data$total_severity)
+
+match_result <- matchit(I_reversed ~ total_severity, 
+                        data = filtered_data, 
+                        method = "nearest", 
+                        ratio = 1)
+
+# NEW: Get the matched dataset
+matched_data <- match.data(match_result)
+
+# NEW: Split matched data into inflammation groups
+filtered_WITH_I <- matched_data %>% filter(I == 1)
+filtered_WITHOUT_I <- matched_data %>% filter(I == 0)
+
+# NEW: Track severity AFTER matching
+severity_WITH_after[sim] <- mean(filtered_WITH_I$total_severity)
+severity_WITHOUT_after[sim] <- mean(filtered_WITHOUT_I$total_severity)
+n_matched[sim] <- nrow(filtered_WITH_I)  # Both groups have same size after 1:1 matching
+  
   # === Calculate for WITH inflammation group ===
   if(nrow(filtered_WITH_I) > 5) {  # Need sufficient data for covariance
     cov_matrix_WITH <- cov(filtered_WITH_I[, c("S1", "S2", "W1", "W2", "M")])
@@ -316,8 +357,20 @@ filtered_probs_combined$Rank <- match(filtered_probs_combined$Combination, avg_p
 
 # Report average sample sizes
 cat("Average sample sizes across simulations:\n")
-cat("With Inflammation:", round(mean(n_WITH_inflammation), 1), "\n")
-cat("Without Inflammation:", round(mean(n_WITHOUT_inflammation), 1), "\n")
+cat("With Inflammation (before matching):", round(mean(n_WITH_inflammation), 1), "\n")
+cat("Without Inflammation (before matching):", round(mean(n_WITHOUT_inflammation), 1), "\n")
+cat("Per group after matching:", round(mean(n_matched), 1), "\n")
+
+# NEW: Report severity before and after matching
+cat("\nAverage total severity BEFORE matching:\n")
+cat("With Inflammation:", round(mean(severity_WITH_before), 2), "\n")
+cat("Without Inflammation:", round(mean(severity_WITHOUT_before), 2), "\n")
+cat("Difference:", round(mean(severity_WITH_before) - mean(severity_WITHOUT_before), 2), "\n")
+
+cat("\nAverage total severity AFTER matching:\n")
+cat("With Inflammation:", round(mean(severity_WITH_after), 2), "\n")
+cat("Without Inflammation:", round(mean(severity_WITHOUT_after), 2), "\n")
+cat("Difference:", round(mean(severity_WITH_after) - mean(severity_WITHOUT_after), 2), "\n")
 ```
 
 ## Results
