@@ -31,7 +31,7 @@ with different standard deviations depending on indicator strength. The
 disorder is considered present if at least 2 of the 5 symptoms are
 present. The simulation calculates the probability of each symptom
 combination separately for individuals with and without inflammation.
-To ensure fair comparison between inflammation groups, we simulate a large population and then select individuals from the non-inflammation group whose symptom severity matches the inflammation group. Specifically, we select non-inflammation individuals whose total symptom severity falls within ±0.5 SD of the inflammation group's mean severity, then randomly sample to achieve equal group sizes.
+To ensure fair comparison between inflammation groups, we simulate a large population and then select individuals from the non-inflammation group whose symptom severity matches the inflammation group. Specifically, we select non-inflammation individuals whose total symptom severity falls within Â±0.5 SD of the inflammation group's mean severity, then randomly sample to achieve equal group sizes.
 
 ```{r setup, include=FALSE}
 ```
@@ -90,7 +90,26 @@ generate_correlated_binary <- function(n, p1, p2, cor) {
 }
 ```
 
-Fifth, the set up of the simulation is defined.
+Fifth, a function is created to calculate the Shannon index. The Shannon
+index quantifies heterogeneity by measuring uncertainty in a
+distribution, with higher values indicating greater heterogeneity.
+
+```{r shannon_function, echo=TRUE}
+# Function to calculate Shannon index
+# Input: vector of probabilities
+# Output: Shannon index (using natural logarithm)
+calculate_shannon <- function(probabilities) {
+  # Only use probabilities > 0 (since log(0) is undefined)
+  p <- probabilities[probabilities > 0]
+  # Normalize to ensure probabilities sum to 1
+  p <- p / sum(p)
+  # Calculate Shannon index: H = -sum(p * ln(p))
+  H <- -sum(p * log(p))
+  return(H)
+}
+```
+
+Sixth, the set up of the simulation is defined.
 
 ```{r simulation_setup, echo=TRUE}
 # Number of individuals and simulations
@@ -108,6 +127,10 @@ n_WITHOUT_inflammation <- numeric(n_sims)
 # Vectors to track symptom severity means
 severity_WITH_inflammation <- numeric(n_sims)
 severity_WITHOUT_inflammation <- numeric(n_sims)
+
+# Vectors to track Shannon indices for heterogeneity analysis
+shannon_WITH_inflammation <- numeric(n_sims)
+shannon_WITHOUT_inflammation <- numeric(n_sims)
 ```
 
 ## Running Simulations
@@ -172,7 +195,7 @@ filtered_WITHOUT_I <- filtered_data %>% filter(I == 0)
 mean_severity_WITH <- mean(filtered_WITH_I$severity)
 sd_severity_WITH <- sd(filtered_WITH_I$severity)
 
-# Define selection range: mean ± 0.5 SD
+# Define selection range: mean Â± 0.5 SD
 lower_bound <- mean_severity_WITH - 0.5 * sd_severity_WITH
 upper_bound <- mean_severity_WITH + 0.5 * sd_severity_WITH
 
@@ -226,10 +249,27 @@ if(nrow(filtered_WITHOUT_I) > 5) {  # Need sufficient data for covariance
                                                       sigma = cov_matrix_WITHOUT)
     }
   }
+
+# === Calculate Shannon indices for this simulation ===
+# Identify which combinations meet diagnostic criteria (>= 2 symptoms)
+meets_criteria <- rowSums(combinations) >= 2
+
+# Calculate Shannon index for WITH inflammation group
+# Only use probabilities for combinations that meet diagnostic criteria
+probs_WITH <- results_WITH_inflammation[sim, meets_criteria]
+if(sum(probs_WITH) > 0) {
+  shannon_WITH_inflammation[sim] <- calculate_shannon(probs_WITH)
+}
+
+# Calculate Shannon index for WITHOUT inflammation group
+probs_WITHOUT <- results_WITHOUT_inflammation[sim, meets_criteria]
+if(sum(probs_WITHOUT) > 0) {
+  shannon_WITHOUT_inflammation[sim] <- calculate_shannon(probs_WITHOUT)
+}
 }
 ```
 
-The simulation results are processed separately for each inflammation group. For both the "with inflammation" and "without inflammation" groups, we calculate the mean probability and standard deviation of each symptom combination across the 100 simulations. The two groups are then combined into a single dataset for comparison. Only symptom combinations that meet diagnostic criteria (≥2 symptoms present) are retained for analysis. Combinations are ranked by their average probability across both groups to facilitate visual comparison. Finally, we report the average sample sizes for each inflammation group across all simulations.
+The simulation results are processed separately for each inflammation group. For both the "with inflammation" and "without inflammation" groups, we calculate the mean probability and standard deviation of each symptom combination across the 100 simulations. The two groups are then combined into a single dataset for comparison. Only symptom combinations that meet diagnostic criteria (â‰¥2 symptoms present) are retained for analysis. Combinations are ranked by their average probability across both groups to facilitate visual comparison. Finally, we report the average sample sizes for each inflammation group across all simulations.
 
 ```{r calculations, echo=TRUE}
 # === Process results for WITH inflammation group ===
@@ -284,6 +324,34 @@ cat("Without Inflammation:", round(mean(n_WITHOUT_inflammation), 1), "\n")
 cat("\nAverage symptom severity across simulations:\n")
 cat("With Inflammation:", round(mean(severity_WITH_inflammation), 2), "\n")
 cat("Without Inflammation:", round(mean(severity_WITHOUT_inflammation), 2), "\n")
+
+# === Report Shannon Index Results ===
+cat("\n=== HETEROGENEITY ANALYSIS (Shannon Index) ===\n")
+cat("Shannon Index (With Inflammation):    ", 
+    round(mean(shannon_WITH_inflammation), 3), " ± ", 
+    round(sd(shannon_WITH_inflammation), 3), "\n", sep="")
+cat("Shannon Index (Without Inflammation): ", 
+    round(mean(shannon_WITHOUT_inflammation), 3), " ± ", 
+    round(sd(shannon_WITHOUT_inflammation), 3), "\n", sep="")
+cat("\nDifference (With - Without): ", 
+    round(mean(shannon_WITH_inflammation) - mean(shannon_WITHOUT_inflammation), 3), "\n", sep="")
+cat("95% CI of difference: [", 
+    round(mean(shannon_WITH_inflammation - shannon_WITHOUT_inflammation) - 
+          1.96 * sd(shannon_WITH_inflammation - shannon_WITHOUT_inflammation) / sqrt(n_sims), 3), 
+    ", ", 
+    round(mean(shannon_WITH_inflammation - shannon_WITHOUT_inflammation) + 
+          1.96 * sd(shannon_WITH_inflammation - shannon_WITHOUT_inflammation) / sqrt(n_sims), 3), 
+    "]\n", sep="")
+
+# Interpretation
+cat("\nInterpretation: ")
+if(mean(shannon_WITH_inflammation) > mean(shannon_WITHOUT_inflammation)) {
+  cat("Higher heterogeneity in the inflammation group (one-to-many mapping).\n")
+} else if(mean(shannon_WITH_inflammation) < mean(shannon_WITHOUT_inflammation)) {
+  cat("Lower heterogeneity in the inflammation group (one-to-one mapping).\n")
+} else {
+  cat("No difference in heterogeneity between groups.\n")
+}
 ```
 
 ## Results
@@ -310,7 +378,7 @@ print(derived_probs_WITHOUT %>%
 
 ## Visualization
 
-The probabilities of symptom combinations are plotted for both inflammation groups. Each bar represents a symptom combination that meets diagnostic criteria (≥2 symptoms present). Orange bars represent individuals with inflammation, while blue bars represent individuals without inflammation. Combinations are ordered by their average probability across both groups. Error bars indicate the standard deviation across the 100 simulations.
+The probabilities of symptom combinations are plotted for both inflammation groups. Each bar represents a symptom combination that meets diagnostic criteria (â‰¥2 symptoms present). Orange bars represent individuals with inflammation, while blue bars represent individuals without inflammation. Combinations are ordered by their average probability across both groups. Error bars indicate the standard deviation across the 100 simulations.
 
 ```{r plot, echo=TRUE, message=FALSE, warning=FALSE}
 # Define the theme for the figure
