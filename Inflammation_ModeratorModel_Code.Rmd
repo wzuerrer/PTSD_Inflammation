@@ -37,7 +37,7 @@ moderation of the disorder's effect. The simulation calculates the
 probability of each symptom combination separately for individuals with
 and without inflammation.
 
-To ensure fair comparison between inflammation groups, we simulate a large population and then select individuals from the non-inflammation group whose symptom severity matches the inflammation group. Specifically, we select non-inflammation individuals whose total symptom severity falls within Â±0.5 SD of the inflammation group's mean severity, then randomly sample to achieve equal group sizes.
+To ensure fair comparison between inflammation groups, we simulate a large population and then select individuals from the non-inflammation group whose symptom severity matches the inflammation group. Specifically, we select non-inflammation individuals whose total symptom severity falls within ±0.5 SD of the inflammation group's mean severity, then randomly sample to achieve equal group sizes.
 
 ### Formal Model Specification
 
@@ -316,21 +316,40 @@ severity_WITHOUT_inflammation[sim] <- mean(filtered_WITHOUT_I$severity)
     }
   }
 
-  # === Calculate Shannon indices for this simulation ===
-  # Identify which combinations meet diagnostic criteria (>= 2 symptoms)
-  meets_criteria <- rowSums(combinations) >= 2
+  # === Calculate Shannon indices based on observed counts ===
+  # Create combination strings for each individual
+  filtered_WITH_I <- filtered_WITH_I %>%
+    mutate(combination = paste0(as.integer(S1_positive), 
+                                as.integer(S2_positive), 
+                                as.integer(W1_positive), 
+                                as.integer(W2_positive), 
+                                as.integer(M_positive)))
+
+  filtered_WITHOUT_I <- filtered_WITHOUT_I %>%
+    mutate(combination = paste0(as.integer(S1_positive), 
+                                as.integer(S2_positive), 
+                                as.integer(W1_positive), 
+                                as.integer(W2_positive), 
+                                as.integer(M_positive)))
+
+  # Count combinations and calculate proportions for WITH inflammation group
+  counts_WITH <- filtered_WITH_I %>%
+    count(combination) %>%
+    mutate(proportion = n / sum(n))
+
+  # Count combinations and calculate proportions for WITHOUT inflammation group
+  counts_WITHOUT <- filtered_WITHOUT_I %>%
+    count(combination) %>%
+    mutate(proportion = n / sum(n))
 
   # Calculate Shannon index for WITH inflammation group
-  # Only use probabilities for combinations that meet diagnostic criteria
-  probs_WITH <- results_WITH_inflammation[sim, meets_criteria]
-  if(sum(probs_WITH) > 0) {
-    shannon_WITH_inflammation[sim] <- calculate_shannon(probs_WITH)
+  if(nrow(counts_WITH) > 0) {
+    shannon_WITH_inflammation[sim] <- calculate_shannon(counts_WITH$proportion)
   }
 
   # Calculate Shannon index for WITHOUT inflammation group
-  probs_WITHOUT <- results_WITHOUT_inflammation[sim, meets_criteria]
-  if(sum(probs_WITHOUT) > 0) {
-    shannon_WITHOUT_inflammation[sim] <- calculate_shannon(probs_WITHOUT)
+  if(nrow(counts_WITHOUT) > 0) {
+    shannon_WITHOUT_inflammation[sim] <- calculate_shannon(counts_WITHOUT$proportion)
   }
 }
 ```
