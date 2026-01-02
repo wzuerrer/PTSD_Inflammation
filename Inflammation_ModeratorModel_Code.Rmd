@@ -139,7 +139,34 @@ calculate_shannon <- function(probabilities) {
 }
 ```
 
-Sixth, the set up of the simulation is defined.
+Sixth, a function is created to calculate Hill numbers. Hill numbers
+quantify heterogeneity by measuring the effective number of categories
+in a distribution. The parameter q controls sensitivity to rare
+categories: q=0 counts all categories equally (richness), q=1 weights
+by frequency (exponential of Shannon), and q=2 emphasizes common
+categories (inverse Simpson).
+
+```{r hill_function, echo=TRUE}
+# Function to calculate Hill numbers
+# Input: vector of probabilities, q parameter (order of diversity)
+# Output: Hill number (effective number of categories)
+calculate_hill <- function(probabilities, q) {
+  # Only use probabilities > 0 (since log(0) is undefined for q=1)
+  p <- probabilities[probabilities > 0]
+  # Normalize to ensure probabilities sum to 1
+  p <- p / sum(p)
+  
+  if (q == 1) {
+    # Limit case: exponential of Shannon entropy
+    return(exp(-sum(p * log(p))))
+  } else {
+    # General formula: Hill = (sum(p^q))^(1/(1-q))
+    return(sum(p^q)^(1/(1-q)))
+  }
+}
+```
+
+Seventh, the set up of the simulation is defined.
 
 ```{r simulation_setup, echo=TRUE}
 # Number of individuals and simulations
@@ -161,6 +188,15 @@ severity_WITHOUT_inflammation <- numeric(n_sims)
 # Vectors to track Shannon indices for heterogeneity analysis
 shannon_WITH_inflammation <- numeric(n_sims)
 shannon_WITHOUT_inflammation <- numeric(n_sims)
+
+# Vectors to track Hill numbers for heterogeneity analysis
+# q=0: richness, q=1: exp(Shannon), q=2: inverse Simpson
+hill_q0_WITH_inflammation <- numeric(n_sims)
+hill_q0_WITHOUT_inflammation <- numeric(n_sims)
+hill_q1_WITH_inflammation <- numeric(n_sims)
+hill_q1_WITHOUT_inflammation <- numeric(n_sims)
+hill_q2_WITH_inflammation <- numeric(n_sims)
+hill_q2_WITHOUT_inflammation <- numeric(n_sims)
 ```
 
 ## Running Simulations
@@ -351,6 +387,19 @@ severity_WITHOUT_inflammation[sim] <- mean(filtered_WITHOUT_I$severity)
   if(nrow(counts_WITHOUT) > 0) {
     shannon_WITHOUT_inflammation[sim] <- calculate_shannon(counts_WITHOUT$proportion)
   }
+  # Calculate Hill numbers for WITH inflammation group
+  if(nrow(counts_WITH) > 0) {
+    hill_q0_WITH_inflammation[sim] <- calculate_hill(counts_WITH$proportion, q = 0)
+    hill_q1_WITH_inflammation[sim] <- calculate_hill(counts_WITH$proportion, q = 1)
+    hill_q2_WITH_inflammation[sim] <- calculate_hill(counts_WITH$proportion, q = 2)
+  }
+
+  # Calculate Hill numbers for WITHOUT inflammation group
+  if(nrow(counts_WITHOUT) > 0) {
+    hill_q0_WITHOUT_inflammation[sim] <- calculate_hill(counts_WITHOUT$proportion, q = 0)
+    hill_q1_WITHOUT_inflammation[sim] <- calculate_hill(counts_WITHOUT$proportion, q = 1)
+    hill_q2_WITHOUT_inflammation[sim] <- calculate_hill(counts_WITHOUT$proportion, q = 2)
+  }
 }
 ```
 
@@ -437,15 +486,47 @@ cat("95% CI of difference: [",
           1.96 * sd(shannon_WITH_inflammation - shannon_WITHOUT_inflammation) / sqrt(n_sims), 3), 
     "]\n", sep="")
 
-# Interpretation
-cat("\nInterpretation: ")
-if(mean(shannon_WITH_inflammation) > mean(shannon_WITHOUT_inflammation)) {
-  cat("Higher heterogeneity in the inflammation group (one-to-many mapping).\n")
-} else if(mean(shannon_WITH_inflammation) < mean(shannon_WITHOUT_inflammation)) {
-  cat("Lower heterogeneity in the inflammation group (one-to-one mapping).\n")
-} else {
-  cat("No difference in heterogeneity between groups.\n")
-}
+# === Report Hill Numbers Results ===
+cat("\n=== HETEROGENEITY ANALYSIS (Hill Numbers) ===\n")
+
+# Calculate differences for each simulation
+diff_q0 <- hill_q0_WITH_inflammation - hill_q0_WITHOUT_inflammation
+diff_q1 <- hill_q1_WITH_inflammation - hill_q1_WITHOUT_inflammation
+diff_q2 <- hill_q2_WITH_inflammation - hill_q2_WITHOUT_inflammation
+
+# Create summary data frame
+hill_summary <- data.frame(
+  Measure = c("Hill q=0 (Richness)", 
+              "Hill q=1 (exp Shannon)", 
+              "Hill q=2 (inv Simpson)"),
+  With_Inflammation_Mean = c(mean(hill_q0_WITH_inflammation),
+                              mean(hill_q1_WITH_inflammation),
+                              mean(hill_q2_WITH_inflammation)),
+  With_Inflammation_SD = c(sd(hill_q0_WITH_inflammation),
+                            sd(hill_q1_WITH_inflammation),
+                            sd(hill_q2_WITH_inflammation)),
+  Without_Inflammation_Mean = c(mean(hill_q0_WITHOUT_inflammation),
+                                 mean(hill_q1_WITHOUT_inflammation),
+                                 mean(hill_q2_WITHOUT_inflammation)),
+  Without_Inflammation_SD = c(sd(hill_q0_WITHOUT_inflammation),
+                               sd(hill_q1_WITHOUT_inflammation),
+                               sd(hill_q2_WITHOUT_inflammation)),
+  Difference = c(mean(diff_q0),
+                 mean(diff_q1),
+                 mean(diff_q2)),
+  CI_95_Lower = c(mean(diff_q0) - 1.96 * sd(diff_q0) / sqrt(n_sims),
+                  mean(diff_q1) - 1.96 * sd(diff_q1) / sqrt(n_sims),
+                  mean(diff_q2) - 1.96 * sd(diff_q2) / sqrt(n_sims)),
+  CI_95_Upper = c(mean(diff_q0) + 1.96 * sd(diff_q0) / sqrt(n_sims),
+                  mean(diff_q1) + 1.96 * sd(diff_q1) / sqrt(n_sims),
+                  mean(diff_q2) + 1.96 * sd(diff_q2) / sqrt(n_sims))
+)
+
+# Round all numeric columns
+hill_summary[, 2:8] <- round(hill_summary[, 2:8], 3)
+
+# Print summary table
+print(hill_summary)
 ```
 
 ## Results
