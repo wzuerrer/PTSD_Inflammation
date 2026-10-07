@@ -12,29 +12,30 @@ editor_options:
 
 ## Introduction
 
-The aim of the simulation is to calculate and compare the probability
-distributions of symptom combinations between individuals with and
-without inflammation in a fictitious mental disorder. The disorder is
-defined by 5 symptom criteria of which at least 2 must be present to
-fulfill diagnostic criteria. The disorder is simulated with a binary
-latent variable L, which is present in 80% of the simulated individuals.
-Five symptom indicators are simulated: S1, S2, M, W1, and W2, where S
-stands for strong indicators, W for weak indicators, and M for a
-medium-strength indicator. Each symptom is influenced by both the
-disorder L and by a second binary latent variable I, which represents
-inflammation. Inflammation is present in 50% of individuals. The
-correlation between L and I is 0.6. Both latent variables act additively
-on the symptoms, with varying strengths of effect. Symptoms are measured
-on a scale from 0 to 4, with values of 2 or higher indicating symptom
-presence. Symptom ratings are normally distributed around a mean of 2,
-with different standard deviations depending on indicator strength. The
-disorder is considered present if at least 2 of the 5 symptoms are
-present. The simulation calculates the probability of each symptom
-combination separately for individuals with and without inflammation.
-To ensure fair comparison between inflammation groups, we simulate a large population and then select individuals from the non-inflammation group whose symptom severity matches the inflammation group. Specifically, we select non-inflammation individuals whose total symptom severity falls within ±0.5 SD of the inflammation group's mean severity, then randomly sample to achieve equal group sizes.
+## Introduction
 
-```{r setup, include=FALSE}
-```
+The aim of the simulation is to quantify the difference in symptom
+heterogeneity (via Hill numbers) between two groups of individuals with
+the same fictitious mental disorder: one group with and one without a
+biological factor (e.g., inflammation). The disorder is defined by 5
+symptom criteria of which at least two must be present to fulfill
+diagnostic criteria. It is simulated with a binary latent construct "L",
+present in 80% of the simulated individuals. The biological factor is
+simulated with a second binary latent construct "I", present in 50% of
+individuals and correlated with L (r = 0.6). The symptoms are simulated
+as indicators "S1", "S2", "W1", "W2", and "M". "S" equates to a strong
+indicator, "W" to a weak indicator, and "M" to a medium-strength
+indicator. In this additive model, L and I each have a direct effect on
+every symptom, with different strengths. Symptoms are measured on a
+scale ranging from 0-4, with values of 2 or higher indicating symptom
+presence. Symptom ratings are normally distributed around a mean of 2,
+with more variance added for weaker indicators. Diagnosed individuals
+are split into a group with (I = 1) and without (I = 0) the biological
+factor. To ensure that differences in heterogeneity are not caused by
+differences in severity, both groups are matched on the full
+distribution of total symptom severity. Finally, the share of each
+symptom combination and the heterogeneity (Hill numbers) are calculated
+for both groups.
 
 ## Set-up
 
@@ -43,24 +44,24 @@ First, the necessary packages are loaded.
 ```{r library, echo=TRUE, message=FALSE, warning=FALSE}
 # Load required packages
 library(tidyverse)
-library(mvtnorm)
 library(MASS)
-library(flextable)
-library(officer)
 ```
 
 Second, a seed is set and the general set up is defined.
 
-```{r geenral_setup, echo=TRUE}
+```{r general_setup, echo=TRUE}
 # Setting seed for reproducibility
 set.seed(123)
 
-# Combinations of binary criteria
+# All 32 possible combinations of the 5 binary symptom criteria
 combinations <- expand.grid(c(0,1), c(0,1), c(0,1), c(0,1), c(0,1))
+
+# Labels of the combinations, e.g. "11001" (order: S1, S2, W1, W2, M)
+combination_labels <- apply(combinations, 1, paste0, collapse = "")
 ```
 
-Third, a helper function is created to assure that simulates values fall
-between 0 and 4 (otherwise they are resampled).
+Third, a helper function is created that linearly rescales the simulated
+values to a range from 0 to 4 (lowest value = 0, highest value = 4).
 
 ```{r helper_function_rescale, echo=TRUE}
 # Function to ensure the values fall between 0 and 4
@@ -76,40 +77,19 @@ variables
 
 ```{r helper_function_binary, echo=TRUE}
 generate_correlated_binary <- function(n, p1, p2, cor) {
-  means <- c(0, 0)
+  # Draw n pairs of correlated standard normal values
   sigma <- matrix(c(1, cor, cor, 1), 2, 2)
-  bvn <- mvrnorm(n, mu = means, Sigma = sigma)
+  bvn <- mvrnorm(n, mu = c(0, 0), Sigma = sigma)
   
-  threshold_L <- qnorm(1 - p1)
-  threshold_I <- qnorm(1 - p2)
-  
-  L <- ifelse(bvn[,1] > threshold_L, 1, 0)
-  I <- ifelse(bvn[,2] > threshold_I, 1, 0)
+  # Dichotomize: values above the threshold become 1
+  L <- ifelse(bvn[,1] > qnorm(1 - p1), 1, 0)
+  I <- ifelse(bvn[,2] > qnorm(1 - p2), 1, 0)
   
   return(data.frame(L = L, I = I))
 }
 ```
 
-Fifth, a function is created to calculate the Shannon index. The Shannon
-index quantifies heterogeneity by measuring uncertainty in a
-distribution, with higher values indicating greater heterogeneity.
-
-```{r shannon_function, echo=TRUE}
-# Function to calculate Shannon index
-# Input: vector of probabilities
-# Output: Shannon index (using natural logarithm)
-calculate_shannon <- function(probabilities) {
-  # Only use probabilities > 0 (since log(0) is undefined)
-  p <- probabilities[probabilities > 0]
-  # Normalize to ensure probabilities sum to 1
-  p <- p / sum(p)
-  # Calculate Shannon index: H = -sum(p * ln(p))
-  H <- -sum(p * log(p))
-  return(H)
-}
-```
-
-Sixth, a function is created to calculate Hill numbers. Hill numbers
+Fifth, a function is created to calculate Hill numbers. Hill numbers
 quantify heterogeneity by measuring the effective number of categories
 in a distribution. The parameter q controls sensitivity to rare
 categories: q=0 counts all categories equally (richness), q=1 weights
@@ -136,6 +116,24 @@ calculate_hill <- function(probabilities, q) {
 }
 ```
 
+Sixth, a function is created that calculates the share of each of the
+32 symptom combinations in a group (number of individuals with the
+combination divided by group size).
+
+```{r combination_function, echo=TRUE}
+calculate_combination_shares <- function(data) {
+  # Code each individual's symptom combination, e.g. "11001"
+  combination <- paste0(as.integer(data$S1_positive),
+                        as.integer(data$S2_positive),
+                        as.integer(data$W1_positive),
+                        as.integer(data$W2_positive),
+                        as.integer(data$M_positive))
+  # Count each of the 32 combinations (including those with 0 individuals)
+  counts <- table(factor(combination, levels = combination_labels))
+  return(as.numeric(counts) / sum(counts))
+}
+```
+
 Seventh, the set up of the simulation is defined.
 
 ```{r simulation_setup, echo=TRUE}
@@ -143,7 +141,12 @@ Seventh, the set up of the simulation is defined.
 n <- 10000
 n_sims <- 100
 
-# Matrices to accumulate the results of each simulation
+# Model parameters
+p_L <- 0.8      # probability of the disorder (L)
+p_I <- 0.5      # probability of the biological factor (I)
+cor_LI <- 0.6   # correlation between L and I (underlying continuous values)
+
+# Matrices to store the share of each symptom combination per simulation
 results_WITH_inflammation <- matrix(0, ncol = 2^5, nrow = n_sims)
 results_WITHOUT_inflammation <- matrix(0, ncol = 2^5, nrow = n_sims)
 
@@ -154,10 +157,6 @@ n_WITHOUT_inflammation <- numeric(n_sims)
 # Vectors to track symptom severity means
 severity_WITH_inflammation <- numeric(n_sims)
 severity_WITHOUT_inflammation <- numeric(n_sims)
-
-# Vectors to track Shannon indices for heterogeneity analysis
-shannon_WITH_inflammation <- numeric(n_sims)
-shannon_WITHOUT_inflammation <- numeric(n_sims)
 
 # Vectors to track Hill numbers for heterogeneity analysis
 # q=0: richness, q=1: exp(Shannon), q=2: inverse Simpson
@@ -171,12 +170,13 @@ hill_q2_WITHOUT_inflammation <- numeric(n_sims)
 
 ## Running Simulations
 
-First, we simulate the presence of the mental disorder and inflammation status. Each individual has an 80% probability of having the disorder and a 50% probability of having inflammation, with a correlation of 0.6 between the two. Next, we generate individual symptom ratings for every simulated individual. These ratings are based on the previously stated assumptions, namely, they are distributed around a mean of 2 with varying standard deviations depending on symptom strength. Each symptom is influenced by both the disorder and inflammation through an additive model. After obtaining the symptom ratings, we introduce new variables that indicate whether a symptom is "present" or "absent". A symptom is deemed "present" if its rating is 2 or higher. We then evaluate the presence of the disorder based on the number of "present" symptoms. If at least 2 out of the 5 symptoms are deemed present, then the disorder is considered to be "present" in that individual. The diagnosed individuals are then split into two groups: those with inflammation (I=1) and those without inflammation (I=0). Finally, the probability of each symptom combination is calculated separately for each inflammation group across 100 simulations.
+First, we simulate the presence of the mental disorder and inflammation status. Each individual has an 80% probability of having the disorder and a 50% probability of having inflammation, with a correlation of 0.6 between the two. Next, we generate individual symptom ratings for every simulated individual. These ratings are based on the previously stated assumptions, namely, they are distributed around a mean of 2 with varying standard deviations depending on symptom strength. Each symptom is influenced by both the disorder and inflammation through an additive model. After obtaining the symptom ratings, we introduce new variables that indicate whether a symptom is "present" or "absent". A symptom is deemed "present" if its rating is 2 or higher. We then evaluate the presence of the disorder based on the number of "present" symptoms. If at least 2 out of the 5 symptoms are deemed present, the individual is considered diagnosed with the disorder. The diagnosed individuals are then split into two groups: those with inflammation (I=1) and those without inflammation (I=0). To ensure that differences in heterogeneity are not caused by differences in severity, both groups are matched on the full
+distribution of total symptom severity. Finally, the probability of each symptom combination is calculated separately for each inflammation group across 100 simulations.
 
 ```{r simulations, echo=TRUE}
 for(sim in 1:n_sims) {
   # Generate correlated binary latent variables L (PTSD) and I (Inflammation)
-  latent_vars <- generate_correlated_binary(n, p1 = 0.8, p2 = 0.5, cor = 0.6)
+  latent_vars <- generate_correlated_binary(n, p1 = p_L, p2 = p_I, cor = cor_LI)
   L <- latent_vars$L
   I <- latent_vars$I
   
@@ -218,35 +218,40 @@ for(sim in 1:n_sims) {
 filtered_data <- data %>%
     filter(criteria_met >= 2)
   
-# Calculate symptom severity (sum of all 5 symptom ratings)
+# Calculate total symptom severity (sum of the five symptom ratings, range 0-20)
 filtered_data <- filtered_data %>%
   mutate(severity = S1 + S2 + M + W1 + W2)
 
-# Split into inflammation groups
+# Split into groups with (I = 1) and without (I = 0) the biological factor
 filtered_WITH_I <- filtered_data %>% filter(I == 1)
 filtered_WITHOUT_I <- filtered_data %>% filter(I == 0)
 
-# === Severity-based sampling for equal groups ===
-# Calculate mean and SD of severity in inflammation group
-mean_severity_WITH <- mean(filtered_WITH_I$severity)
-sd_severity_WITH <- sd(filtered_WITH_I$severity)
-
-# Define selection range: mean ± 0.5 SD
-lower_bound <- mean_severity_WITH - 0.5 * sd_severity_WITH
-upper_bound <- mean_severity_WITH + 0.5 * sd_severity_WITH
-
-# Select non-inflammation individuals within this severity range
-filtered_WITHOUT_I_eligible <- filtered_WITHOUT_I %>%
-  filter(severity >= lower_bound & severity <= upper_bound)
-
-# Determine sample size (minimum of both groups)
-n_sample <- min(nrow(filtered_WITH_I), nrow(filtered_WITHOUT_I_eligible))
-
-# Random sample from both groups to get equal sizes
-if(n_sample > 5) {
-  filtered_WITH_I <- filtered_WITH_I %>% sample_n(n_sample)
-  filtered_WITHOUT_I <- filtered_WITHOUT_I_eligible %>% sample_n(n_sample)
-}
+  # === Severity matching: equalize the full severity distribution ===
+  # Severity is divided into bins of width 0.5; within each bin, the same
+  # number of individuals is randomly drawn from both groups
+  breaks <- seq(0, 20, by = 0.5)
+  filtered_WITH_I <- filtered_WITH_I %>%
+    mutate(bin = cut(severity, breaks, include.lowest = TRUE))
+  filtered_WITHOUT_I <- filtered_WITHOUT_I %>%
+    mutate(bin = cut(severity, breaks, include.lowest = TRUE))
+  
+  # Number of individuals to draw per bin (the smaller of the two groups)
+  n_per_bin <- inner_join(count(filtered_WITH_I, bin, name = "n_with"),
+                          count(filtered_WITHOUT_I, bin, name = "n_without"),
+                          by = "bin") %>%
+    mutate(n_take = pmin(n_with, n_without))
+  
+  # Randomly draw n_take individuals per bin from both groups
+  filtered_WITH_I <- filtered_WITH_I %>%
+    inner_join(n_per_bin, by = "bin") %>%
+    group_by(bin) %>%
+    filter(row_number() %in% sample(n(), first(n_take))) %>%
+    ungroup()
+  filtered_WITHOUT_I <- filtered_WITHOUT_I %>%
+    inner_join(n_per_bin, by = "bin") %>%
+    group_by(bin) %>%
+    filter(row_number() %in% sample(n(), first(n_take))) %>%
+    ungroup()
 
 # Track sample sizes
 n_WITH_inflammation[sim] <- nrow(filtered_WITH_I)
@@ -256,133 +261,42 @@ n_WITHOUT_inflammation[sim] <- nrow(filtered_WITHOUT_I)
 severity_WITH_inflammation[sim] <- mean(filtered_WITH_I$severity)
 severity_WITHOUT_inflammation[sim] <- mean(filtered_WITHOUT_I$severity)
   
-# === Calculate for WITH inflammation group ===
-if(nrow(filtered_WITH_I) > 5) {  # Need sufficient data for covariance
-    cov_matrix_WITH <- cov(filtered_WITH_I[, c("S1", "S2", "W1", "W2", "M")])
-    means_WITH <- colMeans(filtered_WITH_I[, c("S1", "S2", "W1", "W2", "M")])
-    
-    for(i in 1:nrow(combinations)){
-      lower <- as.numeric(ifelse(combinations[i,] == 1, 2, -Inf))
-      upper <- as.numeric(ifelse(combinations[i,] == 1, Inf, 2))
-      results_WITH_inflammation[sim, i] <- pmvnorm(lower = lower, 
-                                                   upper = upper, 
-                                                   mean = means_WITH, 
-                                                   sigma = cov_matrix_WITH)
-    }
-}
+  # Calculate the share of each symptom combination in both groups
+  results_WITH_inflammation[sim, ] <- calculate_combination_shares(filtered_WITH_I)
+  results_WITHOUT_inflammation[sim, ] <- calculate_combination_shares(filtered_WITHOUT_I)
   
-# === Calculate for WITHOUT inflammation group ===
-if(nrow(filtered_WITHOUT_I) > 5) {  # Need sufficient data for covariance
-    cov_matrix_WITHOUT <- cov(filtered_WITHOUT_I[, c("S1", "S2", "W1", "W2", "M")])
-    means_WITHOUT <- colMeans(filtered_WITHOUT_I[, c("S1", "S2", "W1", "W2", "M")])
-    
-    for(i in 1:nrow(combinations)){
-      lower <- as.numeric(ifelse(combinations[i,] == 1, 2, -Inf))
-      upper <- as.numeric(ifelse(combinations[i,] == 1, Inf, 2))
-      results_WITHOUT_inflammation[sim, i] <- pmvnorm(lower = lower, 
-                                                      upper = upper, 
-                                                      mean = means_WITHOUT, 
-                                                      sigma = cov_matrix_WITHOUT)
-    }
-  }
-
-# === Calculate Shannon indices based on observed counts ===
-# Create combination strings for each individual
-filtered_WITH_I <- filtered_WITH_I %>%
-  mutate(combination = paste0(as.integer(S1_positive), 
-                              as.integer(S2_positive), 
-                              as.integer(W1_positive), 
-                              as.integer(W2_positive), 
-                              as.integer(M_positive)))
-
-filtered_WITHOUT_I <- filtered_WITHOUT_I %>%
-  mutate(combination = paste0(as.integer(S1_positive), 
-                              as.integer(S2_positive), 
-                              as.integer(W1_positive), 
-                              as.integer(W2_positive), 
-                              as.integer(M_positive)))
-
-# Count combinations and calculate proportions for WITH inflammation group
-counts_WITH <- filtered_WITH_I %>%
-  count(combination) %>%
-  mutate(proportion = n / sum(n))
-
-# Count combinations and calculate proportions for WITHOUT inflammation group
-counts_WITHOUT <- filtered_WITHOUT_I %>%
-  count(combination) %>%
-  mutate(proportion = n / sum(n))
-
-# Calculate Shannon index for WITH inflammation group
-if(nrow(counts_WITH) > 0) {
-  shannon_WITH_inflammation[sim] <- calculate_shannon(counts_WITH$proportion)
-}
-
-# Calculate Shannon index for WITHOUT inflammation group
-if(nrow(counts_WITHOUT) > 0) {
-  shannon_WITHOUT_inflammation[sim] <- calculate_shannon(counts_WITHOUT$proportion)
-}
-
-  # Calculate Hill numbers for WITH inflammation group
-  if(nrow(counts_WITH) > 0) {
-    hill_q0_WITH_inflammation[sim] <- calculate_hill(counts_WITH$proportion, q = 0)
-    hill_q1_WITH_inflammation[sim] <- calculate_hill(counts_WITH$proportion, q = 1)
-    hill_q2_WITH_inflammation[sim] <- calculate_hill(counts_WITH$proportion, q = 2)
-  }
-
-  # Calculate Hill numbers for WITHOUT inflammation group
-  if(nrow(counts_WITHOUT) > 0) {
-    hill_q0_WITHOUT_inflammation[sim] <- calculate_hill(counts_WITHOUT$proportion, q = 0)
-    hill_q1_WITHOUT_inflammation[sim] <- calculate_hill(counts_WITHOUT$proportion, q = 1)
-    hill_q2_WITHOUT_inflammation[sim] <- calculate_hill(counts_WITHOUT$proportion, q = 2)
-  }
+  # Calculate Hill numbers (q = 0, 1, 2) for both groups
+  hill_q0_WITH_inflammation[sim] <- calculate_hill(results_WITH_inflammation[sim, ], q = 0)
+  hill_q1_WITH_inflammation[sim] <- calculate_hill(results_WITH_inflammation[sim, ], q = 1)
+  hill_q2_WITH_inflammation[sim] <- calculate_hill(results_WITH_inflammation[sim, ], q = 2)
+  hill_q0_WITHOUT_inflammation[sim] <- calculate_hill(results_WITHOUT_inflammation[sim, ], q = 0)
+  hill_q1_WITHOUT_inflammation[sim] <- calculate_hill(results_WITHOUT_inflammation[sim, ], q = 1)
+  hill_q2_WITHOUT_inflammation[sim] <- calculate_hill(results_WITHOUT_inflammation[sim, ], q = 2)
 }
 ```
 
 The simulation results are processed separately for each inflammation group. For both the "with inflammation" and "without inflammation" groups, we calculate the mean probability and standard deviation of each symptom combination across the 100 simulations. The two groups are then combined into a single dataset for comparison. Only symptom combinations that meet diagnostic criteria (≥2 symptoms present) are retained for analysis. Combinations are ranked by their average probability across both groups to facilitate visual comparison. Finally, we report the average sample sizes for each inflammation group across all simulations.
 
 ```{r calculations, echo=TRUE}
-# === Process results for WITH inflammation group ===
+# Mean and SD of each combination's share across simulations, per group
 derived_probs_WITH <- data.frame(
-  Combination = paste(combinations[,1], 
-                      combinations[,2], 
-                      combinations[,3], 
-                      combinations[,4], 
-                      combinations[,5], sep=""),
+  Combination = combination_labels,
   Mean_Probability = apply(results_WITH_inflammation, 2, mean),
   SD_Probability = apply(results_WITH_inflammation, 2, sd),
+  MeetsCriteria = rowSums(combinations) >= 2,
   Group = "With Inflammation")
 
-# === Process results for WITHOUT inflammation group ===
 derived_probs_WITHOUT <- data.frame(
-  Combination = paste(combinations[,1], 
-                      combinations[,2], 
-                      combinations[,3], 
-                      combinations[,4], 
-                      combinations[,5], sep=""),
+  Combination = combination_labels,
   Mean_Probability = apply(results_WITHOUT_inflammation, 2, mean),
   SD_Probability = apply(results_WITHOUT_inflammation, 2, sd),
+  MeetsCriteria = rowSums(combinations) >= 2,
   Group = "Without Inflammation")
 
-# Combine both groups
-derived_probs_combined <- rbind(derived_probs_WITH, derived_probs_WITHOUT)
-
-# Determine which combinations meet 2 out of 5 criteria
-derived_probs_combined$MeetsCriteria <- ifelse(rowSums(combinations) >= 2, TRUE, FALSE)
-
-# Filter to only include combinations that meet the criteria
-filtered_probs_combined <- derived_probs_combined %>% 
+# Combine both groups and keep only combinations that meet diagnostic criteria
+filtered_probs_combined <- rbind(derived_probs_WITH, derived_probs_WITHOUT) %>%
   filter(MeetsCriteria) %>%
   arrange(Group, desc(Mean_Probability))
-
-# Add abbreviations for x-axis
-# We'll rank combinations by their average probability across both groups
-avg_probs <- derived_probs_combined %>%
-  filter(MeetsCriteria) %>%
-  group_by(Combination) %>%
-  summarise(Avg = mean(Mean_Probability)) %>%
-  arrange(desc(Avg))
-
-filtered_probs_combined$Rank <- match(filtered_probs_combined$Combination, avg_probs$Combination)
 
 # Report average sample sizes
 cat("Average sample sizes across simulations:\n")
@@ -393,34 +307,6 @@ cat("Without Inflammation:", round(mean(n_WITHOUT_inflammation), 1), "\n")
 cat("\nAverage symptom severity across simulations:\n")
 cat("With Inflammation:", round(mean(severity_WITH_inflammation), 2), "\n")
 cat("Without Inflammation:", round(mean(severity_WITHOUT_inflammation), 2), "\n")
-
-# === Report Shannon Index Results ===
-cat("\n=== HETEROGENEITY ANALYSIS (Shannon Index) ===\n")
-cat("Shannon Index (With Inflammation):    ", 
-    round(mean(shannon_WITH_inflammation), 3), " ± ", 
-    round(sd(shannon_WITH_inflammation), 3), "\n", sep="")
-cat("Shannon Index (Without Inflammation): ", 
-    round(mean(shannon_WITHOUT_inflammation), 3), " ± ", 
-    round(sd(shannon_WITHOUT_inflammation), 3), "\n", sep="")
-cat("\nDifference (With - Without): ", 
-    round(mean(shannon_WITH_inflammation) - mean(shannon_WITHOUT_inflammation), 3), "\n", sep="")
-cat("95% CI of difference: [", 
-    round(mean(shannon_WITH_inflammation - shannon_WITHOUT_inflammation) - 
-          1.96 * sd(shannon_WITH_inflammation - shannon_WITHOUT_inflammation) / sqrt(n_sims), 3), 
-    ", ", 
-    round(mean(shannon_WITH_inflammation - shannon_WITHOUT_inflammation) + 
-          1.96 * sd(shannon_WITH_inflammation - shannon_WITHOUT_inflammation) / sqrt(n_sims), 3), 
-    "]\n", sep="")
-
-# Interpretation
-cat("\nInterpretation: ")
-if(mean(shannon_WITH_inflammation) > mean(shannon_WITHOUT_inflammation)) {
-  cat("Higher heterogeneity in the inflammation group (one-to-many mapping).\n")
-} else if(mean(shannon_WITH_inflammation) < mean(shannon_WITHOUT_inflammation)) {
-  cat("Lower heterogeneity in the inflammation group (one-to-one mapping).\n")
-} else {
-  cat("No difference in heterogeneity between groups.\n")
-}
 
 # === Report Hill Numbers Results ===
 cat("\n=== HETEROGENEITY ANALYSIS (Hill Numbers) ===\n")
@@ -467,24 +353,22 @@ print(hill_summary)
 
 ## Results
 
-The tables below showcase the mean probabilities and standard deviations for all symptom combinations that meet diagnostic criteria, displayed separately for individuals with and without inflammation. Combinations are sorted by probability within each group, from most to least common.
+The table below shows the mean probability of each symptom combination that meets diagnostic
+criteria, for both groups side by side. Combinations are sorted by their overall frequency (both groups combined), from most to least common; the last column shows the difference in mean probability.
 
 ```{r show_table, echo=TRUE}
-# Add MeetsCriteria column to individual dataframes
-derived_probs_WITH$MeetsCriteria <- ifelse(rowSums(combinations) >= 2, TRUE, FALSE)
-derived_probs_WITHOUT$MeetsCriteria <- ifelse(rowSums(combinations) >= 2, TRUE, FALSE)
+# Mean share of each symptom combination per group (combinations meeting
+# diagnostic criteria only), sorted by overall frequency
+comparison_table <- data.frame(
+  Combination = combination_labels,
+  With_Inflammation = derived_probs_WITH$Mean_Probability,
+  Without_Inflammation = derived_probs_WITHOUT$Mean_Probability) %>%
+  filter(rowSums(combinations) >= 2) %>%
+  mutate(Difference = With_Inflammation - Without_Inflammation) %>%
+  arrange(desc(With_Inflammation + Without_Inflammation)) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3)))
 
-# Show ALL results for WITH inflammation
-cat("\n=== WITH INFLAMMATION (all combinations meeting criteria) ===\n")
-print(derived_probs_WITH %>% 
-        filter(MeetsCriteria) %>% 
-        arrange(desc(Mean_Probability)))
-
-# Show ALL results for WITHOUT inflammation
-cat("\n=== WITHOUT INFLAMMATION (all combinations meeting criteria) ===\n")
-print(derived_probs_WITHOUT %>% 
-        filter(MeetsCriteria) %>% 
-        arrange(desc(Mean_Probability)))
+print(comparison_table)
 ```
 
 ## Visualization
